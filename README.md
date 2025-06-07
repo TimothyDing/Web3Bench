@@ -38,6 +38,15 @@ To deploy PostgreSQL, you can install it using your system's package manager or 
 
 Make sure PostgreSQL is running and accessible before running Web3Bench tests.
 
+### Setting up Hologres
+
+Hologres is compatible with the PostgreSQL ecosystem and can use PostgreSQL's Python and JDBC SDKs. The main difference between Hologres and PostgreSQL is in the DDL (Data Definition Language).
+
+To use Hologres with Web3Bench:
+1. Set up your Hologres instance
+2. Use the same connection parameters as PostgreSQL
+3. Web3Bench will automatically use the Hologres-specific DDL when `dbtype` is set to `hologres`
+
 ### Installing Python Dependencies
 
 ```bash
@@ -53,9 +62,9 @@ pip3 install pandas tqdm defusedxml mysql-connector-python psycopg2-binary
 
 ## Quick Start Guide
 
-Below are the steps to promptly initiate Web3Bench with a scale factor of 3 on your chosen database (TiDB, PostgreSQL, MySQL, or SingleStore). The provided instructions cover a scenario with a database containing 3000 blocks, 240000 transactions, 2100 contracts, and 54000 token transfers, resulting in a database size of approximately 240MB. The total testing process is configured to last around 5 minutes.
+Below are the steps to promptly initiate Web3Bench with a scale factor of 3 on your chosen database (TiDB, PostgreSQL, MySQL, SingleStore, or Hologres). The provided instructions cover a scenario with a database containing 3000 blocks, 240000 transactions, 2100 contracts, and 54000 token transfers, resulting in a database size of approximately 240MB. The total testing process is configured to last around 5 minutes.
 
-**Note:** Before running the scripts, make sure to configure the database type in `script/config.sh` by setting `dbtype` to one of: `tidb`, `postgres`, `mysql`.
+**Note:** Before running the scripts, make sure to configure the database type in `script/config.sh` by setting `dbtype` to one of: `tidb`, `postgres`, `mysql`, `hologres`.
 
 ```bash
 cd [Web3Bench.dir]/script
@@ -125,7 +134,7 @@ Make sure you execute these commands in the root directory of your project.
     # Notice: add \ before & in the jdbc url
     # For PostgreSQL, use: jdbc:postgresql://$new_ip:$new_port/$new_dbname
     # For MySQL/TiDB/SDB, use: jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8
-    if [ $dbtype == "postgres" ] ; then
+    if [ $dbtype == "postgres" ] || [ $dbtype == "hologres" ] ; then
         new_dburl="jdbc:postgresql://$new_ip:$new_port/$new_dbname"
     else
         new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
@@ -306,7 +315,7 @@ usage: olxpbenchmark
 
     ```bash
     $ python parse.py -h
-    usage: parse.py [-h] [--datadir DATADIR] [--exportcsv EXPORTCSV] [--dbtype {mysql,tidb,postgres}]
+    usage: parse.py [-h] [--datadir DATADIR] [--exportcsv EXPORTCSV] [--dbtype {mysql,tidb,postgres,hologres}]
                     [--exportdb EXPORTDB] [--testtime TESTTIME]
 
     optional arguments:
@@ -318,8 +327,8 @@ usage: olxpbenchmark
                             The name of the exported csv file, default is summary. The name of the
                             exported csv file is <exportcsv>.csv, and it will be exported to the
                             current directory
-    --dbtype {mysql,tidb,postgres}
-                            Database type: mysql, tidb, or postgres (default: mysql)
+    --dbtype {mysql,tidb,postgres,hologres}
+                            Database type: mysql, tidb, postgres, or hologres (default: mysql)
     --exportdb EXPORTDB   If it is empty, the script will not export the data to the database.
                             If it is not empty, the script will export the data to the database.
                             The value of --exportdb can be sum or all. sum: export the sum of the data
@@ -382,11 +391,11 @@ usage: olxpbenchmark
         # Database connection configuration
         db_config = {
             "host": "127.0.0.1",    # Replace with your database host name
-            "port": 4000,           # Replace with your database port (4000 for TiDB, 3306 for MySQL, 5432 for PostgreSQL)
+            "port": 4000,           # Replace with your database port (4000 for TiDB, 3306 for MySQL, 5432 for PostgreSQL/Hologres)
             "user": "root",         # Replace with your database username
             "password": "",         # Replace with your database password
             "database": "web3bench", # Replace with your database name
-            "dbtype": "mysql"       # Database type: mysql, tidb, postgres
+            "dbtype": "mysql"       # Database type: mysql, tidb, postgres, hologres
         }
         ```
         
@@ -395,6 +404,9 @@ usage: olxpbenchmark
         ```bash
         # For PostgreSQL
         python3 parse.py --dbtype postgres --exportdb sum
+        
+        # For Hologres
+        python3 parse.py --dbtype hologres --exportdb sum
         
         # For TiDB
         python3 parse.py --dbtype tidb --exportdb sum

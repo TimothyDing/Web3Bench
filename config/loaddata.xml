@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <parameters>
     <!-- Connection details -->
-    <dbtype>postgres</dbtype>
+    <dbtype>hologres</dbtype>
     <driver>org.postgresql.Driver</driver>
-    <DBUrl>jdbc:postgresql://127.0.0.1:5432/web3bench</DBUrl>
-    <username>web3bench</username>
-    <password>web3bench</password>
+    <DBUrl>jdbc:postgresql://hgxxx-cn-xxx-cn-hangzhou.hologres.aliyuncs.com:80/web3bench</DBUrl>
+    <username>BASIC$web3bench</username>
+    <password>Web3bench</password>
     <isolation>TRANSACTION_SERIALIZABLE</isolation>
     <distribution>rand</distribution>
     <uploadUrl></uploadUrl>
