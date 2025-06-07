@@ -32,17 +32,30 @@ SET GLOBAL tidb_mem_quota_query=0;
 SET GLOBAL tidb_server_memory_limit=0;
 ```
 
+### Setting up PostgreSQL
+
+To deploy PostgreSQL, you can install it using your system's package manager or download from the [official PostgreSQL website](https://www.postgresql.org/download/).
+
+Make sure PostgreSQL is running and accessible before running Web3Bench tests.
+
 ### Installing Python Dependencies
 
 ```bash
 pip3 install -r requirements.txt
 ```
 
+Or install manually:
+```bash
+pip3 install pandas tqdm defusedxml mysql-connector-python psycopg2-binary
+```
+
 > Note: Other versions of the prerequisites have not been fully tested and may encounter unknown issues.
 
 ## Quick Start Guide
 
-Below are the steps to promptly initiate Web3Bench with a scale factor of 3 on TiDB. The provided instructions cover a scenario with a database containing 3000 blocks, 240000 transactions, 2100 contracts, and 54000 token transfers, resulting in a database size of approximately 240MB. The total testing process is configured to last around 5 minutes.
+Below are the steps to promptly initiate Web3Bench with a scale factor of 3 on your chosen database (TiDB, PostgreSQL, MySQL, or SingleStore). The provided instructions cover a scenario with a database containing 3000 blocks, 240000 transactions, 2100 contracts, and 54000 token transfers, resulting in a database size of approximately 240MB. The total testing process is configured to last around 5 minutes.
+
+**Note:** Before running the scripts, make sure to configure the database type in `script/config.sh` by setting `dbtype` to one of: `tidb`, `postgres`, `mysql`.
 
 ```bash
 cd [Web3Bench.dir]/script
@@ -102,7 +115,7 @@ Make sure you execute these commands in the root directory of your project.
     ```shell
     # Values to modify
     ###########################################################
-    # Database type: mysql, tidb, or sdb (singlestoredb)
+    # Database type: mysql, tidb, sdb (singlestoredb), or postgres
     dbtype=tidb
     ###########################################################
     # IP address of the database server
@@ -110,7 +123,13 @@ Make sure you execute these commands in the root directory of your project.
     new_port=4000
     new_dbname=web3bench
     # Notice: add \ before & in the jdbc url
-    new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
+    # For PostgreSQL, use: jdbc:postgresql://$new_ip:$new_port/$new_dbname
+    # For MySQL/TiDB/SDB, use: jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8
+    if [ $dbtype == "postgres" ] ; then
+        new_dburl="jdbc:postgresql://$new_ip:$new_port/$new_dbname"
+    else
+        new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
+    fi
     new_username=root
     new_password=
     new_nodeid="main"
@@ -287,8 +306,8 @@ usage: olxpbenchmark
 
     ```bash
     $ python parse.py -h
-    usage: parse.py [-h] [--datadir DATADIR] [--exportcsv EXPORTCSV] [--exportdb EXPORTDB]
-                    [--testtime TESTTIME]
+    usage: parse.py [-h] [--datadir DATADIR] [--exportcsv EXPORTCSV] [--dbtype {mysql,tidb,postgres}]
+                    [--exportdb EXPORTDB] [--testtime TESTTIME]
 
     optional arguments:
     -h, --help            show this help message and exit
@@ -299,11 +318,13 @@ usage: olxpbenchmark
                             The name of the exported csv file, default is summary. The name of the
                             exported csv file is <exportcsv>.csv, and it will be exported to the
                             current directory
-    --exportdb EXPORTDB   If it is empty, the script will not export the data to the MySQL database.
-                            If it is not empty, the script will export the data to the MySQL database.
+    --dbtype {mysql,tidb,postgres}
+                            Database type: mysql, tidb, or postgres (default: mysql)
+    --exportdb EXPORTDB   If it is empty, the script will not export the data to the database.
+                            If it is not empty, the script will export the data to the database.
                             The value of --exportdb can be sum or all. sum: export the sum of the data
-                            to the MySQL database. all: export all the data (including the original
-                            data and the sum of the data) to the MySQL database
+                            to the database. all: export all the data (including the original
+                            data and the sum of the data) to the database
     --testtime TESTTIME   The test time in minutes, default is 0. If it is 0, the script will get the
                             test time from the xml config file. If it is not 0, the script will use the
                             value as the test time
@@ -313,9 +334,10 @@ usage: olxpbenchmark
     - If you want to parse the csv files in another directory, you can use the option `--datadir` to specify the directory.
   - The script will export the sum of the data to the summary.csv file by default.
     - If you want to export the sum of the data to another csv file, you can use the option `--exportcsv` to specify the name of the exported csv file.
-  - The script will not export the data to the MySQL database by default.
-    - If you want to export the data to the MySQL database, you can use the option `--exportdb` to specify the value of the option. The value of `--exportdb` can be `sum` or `all`.
-      - `sum`: export the sum of the data to the MySQL database.
+  - The script will not export the data to the database by default.
+    - If you want to export the data to the database, you can use the option `--exportdb` to specify the value of the option. The value of `--exportdb` can be `sum` or `all`.
+    - Use the `--dbtype` option to specify the database type: `mysql`, `tidb`, or `postgres` (default: `mysql`).
+      - `sum`: export the sum of the data to the database.
         - The sum results will be stored in `summary.csv` file and the `sum_table` table in the database you specified in the script `parse.py`.
 
             ```sql
@@ -337,8 +359,8 @@ usage: olxpbenchmark
             );
             ```
 
-      - `all`: export all the data (including the original data and the sum of the data) to the MySQL database.
-        - `res_table` table (storing the original data) and `sum_table` table (storing the sum of the data) will be created in the MySQL database.
+      - `all`: export all the data (including the original data and the sum of the data) to the database.
+        - `res_table` table (storing the original data) and `sum_table` table (storing the sum of the data) will be created in the database.
 
             ```sql
             CREATE TABLE IF NOT EXISTS res_table (
@@ -357,14 +379,28 @@ usage: olxpbenchmark
       - Specify the database settings at the top of the script `parse.py`:
 
         ```python
-        # MySQL database connection configuration
+        # Database connection configuration
         db_config = {
-            "host": "127.0.0.1",    # Replace with your MySQL host name
-            "port": 4000,           # Replace with your MySQL port
+            "host": "127.0.0.1",    # Replace with your database host name
+            "port": 4000,           # Replace with your database port (4000 for TiDB, 3306 for MySQL, 5432 for PostgreSQL)
             "user": "root",         # Replace with your database username
             "password": "",         # Replace with your database password
-            "database": "web3bench" # Replace with your database name
+            "database": "web3bench", # Replace with your database name
+            "dbtype": "mysql"       # Database type: mysql, tidb, postgres
         }
+        ```
+        
+        Or use the command line option `--dbtype` to specify the database type:
+        
+        ```bash
+        # For PostgreSQL
+        python3 parse.py --dbtype postgres --exportdb sum
+        
+        # For TiDB
+        python3 parse.py --dbtype tidb --exportdb sum
+        
+        # For MySQL (default)
+        python3 parse.py --dbtype mysql --exportdb sum
         ```
 
 ## Implementation

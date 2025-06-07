@@ -6,19 +6,31 @@ import math
 import json
 import defusedxml.ElementTree as ET
 from tqdm import tqdm
-import mysql.connector
 import argparse
 import socket
 from datetime import datetime
 
-# MySQL database connection configuration
+# Database connection configuration
 db_config = {
-    "host": "127.0.0.1",    # Replace with your MySQL host name
-    "port": 4000,           # Replace with your MySQL port
-    "user": "root",         # Replace with your database username
-    "password": "",         # Replace with your database password
-    "database": "web3bench" # Replace with your database name
+    "host": "127.0.0.1",    # Replace with your database host name
+    "port": 5432,           # Replace with your database port (4000 for TiDB, 3306 for MySQL, 5432 for PostgreSQL)
+    "user": "web3bench",     # Replace with your database username
+    "password": "web3bench",         # Replace with your database password
+    "database": "web3bench", # Replace with your database name
+    "dbtype": "postgres"    # Database type: mysql, tidb, postgres
 }
+
+# Import database connectors based on database type
+try:
+    import mysql.connector
+except ImportError:
+    mysql = None
+
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
 # The number of rows to insert at a time
 chunk_size = 10000  # Adjust the chunk size as needed
 
@@ -44,12 +56,14 @@ def get_args():
     parser.add_argument("--datadir", type=str, default="", help="The directory of the original csv data files. If it is empty, the script will parse all the csv files in the results directory. If it is not empty, the script will parse all the csv files in ../results/<datadir>")
     # --exportcsv: the name of the exported csv file, default is res
     parser.add_argument("--exportcsv", type=str, default="summary", help="The name of the exported csv file, default is summary. The name of the exported csv file is <exportcsv>.csv, and it will be exported to the current directory")
-    # --exportdb: if it is empty, the script will not export the data to the MySQL database
-    # If it is not empty, the script will export the data to the MySQL database.
+    # --dbtype: database type
+    parser.add_argument("--dbtype", type=str, default=db_config["dbtype"], choices=["mysql", "tidb", "postgres"], help="Database type: mysql, tidb, or postgres (default: from db_config)")
+    # --exportdb: if it is empty, the script will not export the data to the database
+    # If it is not empty, the script will export the data to the database.
     # The value of --exportdb can be sum or all
-    # sum: export the sum of the data to the MySQL database
-    # all: export all the data (including the original data and the sum of the data) to the MySQL database
-    parser.add_argument("--exportdb", type=str, default="", help="If it is empty, the script will not export the data to the MySQL database. If it is not empty, the script will export the data to the MySQL database. The value of --exportdb can be sum or all. sum: export the sum of the data to the MySQL database. all: export all the data (including the original data and the sum of the data) to the MySQL database")
+    # sum: export the sum of the data to the database
+    # all: export all the data (including the original data and the sum of the data) to the database
+    parser.add_argument("--exportdb", type=str, default="", help="If it is empty, the script will not export the data to the database. If it is not empty, the script will export the data to the database. The value of --exportdb can be sum or all. sum: export the sum of the data to the database. all: export all the data (including the original data and the sum of the data) to the database")
     # --testtime: the test time in minutes, default is 0
     parser.add_argument("--testtime", type=int, default=0, help="The test time in minutes, default is 0. If it is 0, the script will get the test time from the xml config file. If it is not 0, the script will use the value as the test time")
     args = parser.parse_args()
@@ -174,8 +188,44 @@ def export_to_csv(export_csv_file, results):
         writer.writerows(results)
     print(f"Data has been exported to '{export_csv_file}'")
 
-# Create the sum table SQL statement
-create_sum_table_sql = '''
+# Create database connection based on database type
+def create_db_connection():
+    dbtype = db_config.get("dbtype", "mysql").lower()
+    print(f"Debug: Database type detected: {dbtype}")
+    print(f"Debug: Database config: {db_config}")
+    
+    if dbtype in ["mysql", "tidb"]:
+        print("Debug: Using MySQL/TiDB connection")
+        if mysql is None:
+            raise ImportError("mysql-connector-python is required for MySQL/TiDB connections")
+        return mysql.connector.connect(
+            host=db_config["host"],
+            port=db_config["port"],
+            user=db_config["user"],
+            password=db_config["password"],
+            database=db_config["database"]
+        )
+    elif dbtype == "postgres":
+        print("Debug: Using PostgreSQL connection")
+        print(f"Debug: psycopg2 available: {psycopg2 is not None}")
+        if psycopg2 is None:
+            raise ImportError("psycopg2 is required for PostgreSQL connections")
+        return psycopg2.connect(
+            host=db_config["host"],
+            port=db_config["port"],
+            user=db_config["user"],
+            password=db_config["password"],
+            database=db_config["database"]
+        )
+    else:
+        raise ValueError(f"Unsupported database type: {dbtype}")
+
+# Get SQL statements based on database type
+def get_sql_statements():
+    dbtype = db_config.get("dbtype", "mysql").lower()
+    
+    if dbtype in ["mysql", "tidb"]:
+        create_sum_table_sql = '''
 CREATE TABLE IF NOT EXISTS sum_table (
     batch_id                    BIGINT,
     txn_name                    VARCHAR(10),
@@ -193,20 +243,93 @@ CREATE TABLE IF NOT EXISTS sum_table (
     PRIMARY KEY (batch_id, txn_name)
 );
 '''
-# Create the sum table if it does not exist
-def create_sum_table(cursor, conn):
-    cursor.execute(create_sum_table_sql)
-    conn.commit()
-
-# Insert into the sum table SQL statement
-sum_table_insert_sql = '''
+        
+        create_res_table_sql = '''
+CREATE TABLE IF NOT EXISTS res_table (
+    batch_id        BIGINT,
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    hostname        VARCHAR(30),
+    txn_type_index  BIGINT,
+    txn_name        VARCHAR(10),
+    start_time_s    DECIMAL(20, 6),
+    latency_us      BIGINT,
+    worker_id       INT,
+    phase_id        INT
+);
+'''
+        
+        sum_table_insert_sql = '''
 INSERT INTO sum_table
     (batch_id, txn_name, total_latency_s, txn_count, average_latency_s, p99_latency_s, qps, tps, geometric_mean_latency_s, avg_latency_limit_s, pass_fail, start_time, end_time)
 VALUES
     (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
 '''
-# Export the sum of the data to the MySQL database
+        
+        res_table_insert_sql = '''
+INSERT INTO res_table 
+    (batch_id, hostname, txn_type_index, txn_name, start_time_s, latency_us, worker_id, phase_id)
+VALUES 
+    (%s, %s, %s, %s, %s, %s, %s, %s);
+'''
+        
+    elif dbtype == "postgres":
+        create_sum_table_sql = '''
+CREATE TABLE IF NOT EXISTS sum_table (
+    batch_id                    BIGINT,
+    txn_name                    VARCHAR(10),
+    total_latency_s             DECIMAL(20, 6),
+    txn_count                   BIGINT,
+    average_latency_s           DECIMAL(20, 6),
+    p99_latency_s               DECIMAL(20, 6),
+    qps                         DECIMAL(20, 6),
+    tps                         DECIMAL(20, 6),
+    geometric_mean_latency_s    DECIMAL(20, 6),
+    avg_latency_limit_s         VARCHAR(10),
+    pass_fail                   VARCHAR(10),
+    start_time                  TIMESTAMP(6),
+    end_time                    TIMESTAMP(6),
+    PRIMARY KEY (batch_id, txn_name)
+);
+'''
+        
+        create_res_table_sql = '''
+CREATE TABLE IF NOT EXISTS res_table (
+    batch_id        BIGINT,
+    id              BIGSERIAL PRIMARY KEY,
+    hostname        VARCHAR(30),
+    txn_type_index  BIGINT,
+    txn_name        VARCHAR(10),
+    start_time_s    DECIMAL(20, 6),
+    latency_us      BIGINT,
+    worker_id       INT,
+    phase_id        INT
+);
+'''
+        
+        sum_table_insert_sql = '''
+INSERT INTO sum_table
+    (batch_id, txn_name, total_latency_s, txn_count, average_latency_s, p99_latency_s, qps, tps, geometric_mean_latency_s, avg_latency_limit_s, pass_fail, start_time, end_time)
+VALUES
+    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+'''
+        
+        res_table_insert_sql = '''
+INSERT INTO res_table 
+    (batch_id, hostname, txn_type_index, txn_name, start_time_s, latency_us, worker_id, phase_id)
+VALUES 
+    (%s, %s, %s, %s, %s, %s, %s, %s);
+'''
+    
+    return create_sum_table_sql, create_res_table_sql, sum_table_insert_sql, res_table_insert_sql
+# Create the sum table if it does not exist
+def create_sum_table(cursor, conn):
+    create_sum_table_sql, _, _, _ = get_sql_statements()
+    cursor.execute(create_sum_table_sql)
+    conn.commit()
+
+# Export the sum of the data to the database
 def export_sum_to_db(cursor, conn, batch_id, results):
+    _, _, sum_table_insert_sql, _ = get_sql_statements()
     for result in results:
         cursor.execute(sum_table_insert_sql, 
                         (batch_id, 
@@ -223,35 +346,16 @@ def export_sum_to_db(cursor, conn, batch_id, results):
                         result["Start Time"], 
                         result["End Time"]))
 
-# Create the original data table SQL statement, including the new 'hostname' column
-create_res_table_sql = '''
-CREATE TABLE IF NOT EXISTS res_table (
-    batch_id        BIGINT,
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    hostname        VARCHAR(30),
-    txn_type_index  BIGINT,
-    txn_name        VARCHAR(10),
-    start_time_s    DECIMAL(20, 6),
-    latency_us      BIGINT,
-    worker_id       INT,
-    phase_id        INT
-);
-'''
 # Create the original data table if it does not exist
 def create_res_table(cursor, conn):
+    _, create_res_table_sql, _, _ = get_sql_statements()
     cursor.execute(create_res_table_sql)
     conn.commit()
 
-# Insert into the original data table SQL statement
-res_table_insert_sql = '''
-INSERT INTO res_table 
-    (batch_id, hostname, txn_type_index, txn_name, start_time_s, latency_us, worker_id, phase_id)
-VALUES 
-    (%s, %s, %s, %s, %s, %s, %s, %s);
-'''
 # Convert the original data to the format of the original data table
-# Export the original data to the MySQL database
+# Export the original data to the database
 def export_original_to_db(cursor, conn, batch_id, data_directory):
+    _, _, _, res_table_insert_sql = get_sql_statements()
     # Get the current machine's hostname
     hostname = socket.gethostname()
     # Iterate through all CSV files in the directory and insert into the database
@@ -277,7 +381,11 @@ def export_original_to_db(cursor, conn, batch_id, data_directory):
                     row['Phase Id (index in config file)']
                     ) for _, row in chunk.iterrows()]
                 # Execute batch insert
-                cursor.executemany(res_table_insert_sql, values)
+                dbtype = db_config.get("dbtype", "mysql").lower()
+                if dbtype == "postgres":
+                    psycopg2.extras.execute_batch(cursor, res_table_insert_sql, values)
+                else:
+                    cursor.executemany(res_table_insert_sql, values)
                 # Commit the inserted data after each chunk
                 conn.commit()
 
@@ -293,6 +401,10 @@ def get_batch_id(cursor):
 # Main function
 if __name__ == "__main__":
     args = get_args()
+    # Set database type from command line argument
+    db_config["dbtype"] = args.dbtype
+    print(f"Database type: {args.dbtype}")
+    
     # Get the test time
     if args.testtime != 0:
         test_time = args.testtime
@@ -311,12 +423,12 @@ if __name__ == "__main__":
     # Parse the original csv data
     results = parse_data(original_stats, latency_limit)
 
-    # Export the data to the MySQL database
+    # Export the data to the database
     # Batch id: the number of the results in the database + 1
     batch_id = 0
     if args.exportdb.lower() == "sum" or args.exportdb.lower() == "all":
-        # Connect to the MySQL database
-        conn = mysql.connector.connect(**db_config)
+        # Connect to the database
+        conn = create_db_connection()
         # Get a database cursor
         cursor = conn.cursor()
         # Create the sum table if it does not exist
@@ -324,15 +436,19 @@ if __name__ == "__main__":
         # Get the current batch id from the database
         batch_id = get_batch_id(cursor)
         # Insert the sum data into the sum table
-        print("Export the sum of the data to the MySQL database")
+        dbtype = db_config.get("dbtype", "mysql").lower()
+        print(f"Export the sum of the data to the {dbtype.upper()} database")
         export_sum_to_db(cursor, conn, batch_id, results)
         conn.commit()
         if args.exportdb.lower() == "all":
             # Create the original data table if it does not exist
             create_res_table(cursor, conn)
             # Insert the original data into the original data table
-            print("Export all the original data to the MySQL database")
+            print(f"Export all the original data to the {dbtype.upper()} database")
             export_original_to_db(cursor, conn, batch_id, data_directory)
+        # Close the database connection
+        cursor.close()
+        conn.close()
     # Export the data to the CSV file
     export_csv_file = args.exportcsv + ".csv"
     if batch_id != 0:

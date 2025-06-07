@@ -2,17 +2,23 @@
 
 # Values to modify
 ###########################################################
-# Database type: mysql, tidb, or sdb (singlestoredb)
-dbtype=tidb
+# Database type: mysql, tidb, sdb (singlestoredb), or postgres
+dbtype=postgres
 ###########################################################
 # IP address of the database server
 new_ip='127.0.0.1'
-new_port=4000
+new_port=5432
 new_dbname=web3bench
 # Notice: add \ before & in the jdbc url
-new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
-new_username=root
-new_password=
+# For PostgreSQL, use: jdbc:postgresql://$new_ip:$new_port/$new_dbname
+# For MySQL/TiDB/SDB, use: jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8
+if [ $dbtype == "postgres" ] ; then
+    new_dburl="jdbc:postgresql://$new_ip:$new_port/$new_dbname"
+else
+    new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
+fi
+new_username=web3bench
+new_password=web3bench
 new_nodeid="main"
 new_scalefactor=3
 # Test time in minutes
@@ -35,28 +41,37 @@ new_rate_R24=16
 new_rate_R25=16
 ###########################################################
 
-# Create ~/mysql.cnf file
-mysql_config_file=~/mysql.cnf
-echo "[client]" > $mysql_config_file
-echo "user=$new_username" >> $mysql_config_file
-echo "password=$new_password" >> $mysql_config_file
-
 set -e
 
-# Create database
-echo "Creating database $new_dbname if not exists"
-mysql --defaults-extra-file=$mysql_config_file -h $new_ip -P $new_port -e "CREATE DATABASE IF NOT EXISTS $new_dbname;"
-
-# When using TiDB
-if [ $dbtype == "tidb" ] ; then
-    # Set tidb_skip_isolation_level_check=1 to disable the isolation level check.
-    echo -e "\nTest on TiDB."
-    echo -e "\tSetting tidb_skip_isolation_level_check=1"
-    mysql --defaults-extra-file=$mysql_config_file -h $new_ip -P $new_port -e "SET GLOBAL tidb_skip_isolation_level_check=1;"
+# Create database based on database type
+if [ $dbtype == "postgres" ] ; then
+    # PostgreSQL database creation
+    echo "Creating PostgreSQL database $new_dbname if not exists"
+    export PGPASSWORD=$new_password
+    psql -h $new_ip -p $new_port -U $new_username -d postgres -c "CREATE DATABASE $new_dbname;" 2>/dev/null || echo "Database $new_dbname may already exist"
+    unset PGPASSWORD
+else
+    # MySQL/TiDB/SDB database creation
+    # Create ~/mysql.cnf file
+    mysql_config_file=~/mysql.cnf
+    echo "[client]" > $mysql_config_file
+    echo "user=$new_username" >> $mysql_config_file
+    echo "password=$new_password" >> $mysql_config_file
+    
+    echo "Creating database $new_dbname if not exists"
+    mysql --defaults-extra-file=$mysql_config_file -h $new_ip -P $new_port -e "CREATE DATABASE IF NOT EXISTS $new_dbname;"
+    
+    # When using TiDB
+    if [ $dbtype == "tidb" ] ; then
+        # Set tidb_skip_isolation_level_check=1 to disable the isolation level check.
+        echo -e "\nTest on TiDB."
+        echo -e "\tSetting tidb_skip_isolation_level_check=1"
+        mysql --defaults-extra-file=$mysql_config_file -h $new_ip -P $new_port -e "SET GLOBAL tidb_skip_isolation_level_check=1;"
+    fi
+    
+    # Delete $mysql_config_file file
+    rm $mysql_config_file
 fi
-
-# Delete $mysql_config_file file
-rm $mysql_config_file
 
 # List of files to process
 files=("loaddata.xml" 
@@ -106,9 +121,17 @@ echo "New terminals for runR25: $new_terminals_R25"
 echo "New rate for runR25 per minute: $new_rate_R25"
 echo "###########################################################"
 
+# Set driver based on database type
+if [ $dbtype == "postgres" ] ; then
+    new_driver="org.postgresql.Driver"
+else
+    new_driver="com.mysql.cj.jdbc.Driver"
+fi
+
 for file in "${files[@]}"; do
     if [ -f "../config/$file" ]; then
         sed $SED_INPLACE_OPTION "s#<dbtype>.*</dbtype>#<dbtype>$dbtype</dbtype>#g" "../config/$file"
+        sed $SED_INPLACE_OPTION "s#<driver>.*</driver>#<driver>$new_driver</driver>#g" "../config/$file"
         sed $SED_INPLACE_OPTION "s#<DBUrl>.*</DBUrl>#<DBUrl>$new_dburl</DBUrl>#g" "../config/$file"
         sed $SED_INPLACE_OPTION "s#<username>.*</username>#<username>$new_username</username>#g" "../config/$file"
         sed $SED_INPLACE_OPTION "s#<password>.*</password>#<password>$new_password</password>#g" "../config/$file"

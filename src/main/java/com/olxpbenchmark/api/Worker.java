@@ -474,10 +474,12 @@ public abstract class Worker<T extends BenchmarkModule> implements Runnable {
                         error_h.put(StringUtil.abbrv(ex.getMessage(), 20));
                     }
 
-                    if (savepoint != null) {
-                        this.conn.rollback(savepoint);
-                    } else {
-                        this.conn.rollback();
+                    if (!this.conn.getAutoCommit()) {
+                        if (savepoint != null) {
+                            this.conn.rollback(savepoint);
+                        } else {
+                            this.conn.rollback();
+                        }
                     }
 
                     status = TransactionStatus.USER_ABORTED;
@@ -492,7 +494,7 @@ public abstract class Worker<T extends BenchmarkModule> implements Runnable {
                                 ex.getClass().getSimpleName(), next, this.toString(),
                                 ex.getMessage(), ex.getErrorCode(), ex.getSQLState()), ex);
 
-                    if (this.wrkld.getDBType().shouldUseTransactions()) {
+                    if (this.wrkld.getDBType().shouldUseTransactions() && !this.conn.getAutoCommit()) {
                         if (savepoint != null) {
                             this.conn.rollback(savepoint);
                         } else {

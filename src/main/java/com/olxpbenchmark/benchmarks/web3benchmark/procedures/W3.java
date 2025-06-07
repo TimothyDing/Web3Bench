@@ -38,7 +38,7 @@ public class W3 extends WEB3Procedure {
     public String classname_note = "/* " + classname + " */ ";
     // Insert 1000 rows into transactions from a temp table
     public String query = ""
-            + "insert transactions "
+            + "insert into transactions "
             + "select * from temp_table limit 1000 ";
     private PreparedStatement query_stmt = null;
 
