@@ -1,17 +1,17 @@
 <?xml version="1.0"?>
 <parameters>
     <!-- Connection details -->
-    <dbtype>sdb</dbtype>
-    <driver>com.mysql.cj.jdbc.Driver</driver>
-    <DBUrl>jdbc:mysql://127.0.0.1:3307/web3bench?useSSL=false&amp;characterEncoding=utf-8</DBUrl>
-    <username>root</username>
-    <password>123456</password>
+    <dbtype>postgres</dbtype>
+    <driver>org.postgresql.Driver</driver>
+    <DBUrl>jdbc:postgresql://127.0.0.1:5432/web3bench</DBUrl>
+    <username>web3bench</username>
+    <password>web3bench</password>
     <isolation>TRANSACTION_SERIALIZABLE</isolation>
     <distribution>rand</distribution>
     <uploadUrl></uploadUrl>
 
     <nodeid>main</nodeid>
-    <scalefactor>6000</scalefactor>
+    <scalefactor>3</scalefactor>
 
     <!-- The workload -->
     <terminals>1</terminals>

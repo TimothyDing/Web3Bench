@@ -100,32 +100,80 @@ public abstract class WEB3Procedure extends Procedure {
      * Get the latency(ns) from the resultSet of "explain analyze"
      */
     protected long getTimeFromRS(ResultSet resultSet) throws SQLException {
-        StringBuilder resultLog = new StringBuilder();
-
-        // Check if the result set is empty
-        if (!resultSet.isBeforeFirst()) {
-            resultLog.append("Result set is empty.");
-            return -1;
-        }
-
-        // Get the "execution info" in the first row
         long latency_ns = -1;
-        if (resultSet.next()) {
-            String columnValue = resultSet.getString("execution info");
-            // System.out.println(columnValue);
-
-            String timeRegex = "time:(.*?), ";
-            Pattern pattern = Pattern.compile(timeRegex);
-            Matcher matcher = pattern.matcher(columnValue);
-
-            if (matcher.find()) {
-                String timeValue = matcher.group(1);
-                // System.out.println("Extracted time: " + timeValue);
-                latency_ns = this.convertToNs(timeValue);
-            } else {
-                return -1;
+        
+        // Get metadata to check available columns
+        java.sql.ResultSetMetaData metaData = resultSet.getMetaData();
+        int columnCount = metaData.getColumnCount();
+        
+        // Check if "execution info" column exists (MySQL format)
+        boolean hasExecutionInfoColumn = false;
+        for (int i = 1; i <= columnCount; i++) {
+            if ("execution info".equals(metaData.getColumnName(i))) {
+                hasExecutionInfoColumn = true;
+                break;
             }
         }
+        
+        if (hasExecutionInfoColumn) {
+            // MySQL format - try to get "execution info" column
+            if (resultSet.next()) {
+                String columnValue = resultSet.getString("execution info");
+                // System.out.println(columnValue);
+
+                String timeRegex = "time:(.*?), ";
+                Pattern pattern = Pattern.compile(timeRegex);
+                Matcher matcher = pattern.matcher(columnValue);
+
+                if (matcher.find()) {
+                    String timeValue = matcher.group(1);
+                    // System.out.println("Extracted time: " + timeValue);
+                    latency_ns = this.convertToNs(timeValue);
+                    return latency_ns;
+                }
+            }
+        } else {
+            // PostgreSQL format - read all output and look for execution time
+            StringBuilder allOutput = new StringBuilder();
+            
+            while (resultSet.next()) {
+                for (int i = 1; i <= columnCount; i++) {
+                    String value = resultSet.getString(i);
+                    if (value != null) {
+                        allOutput.append(value).append(" ");
+                    }
+                }
+                allOutput.append("\n");
+            }
+            
+            String output = allOutput.toString();
+            // System.out.println("PostgreSQL EXPLAIN ANALYZE output: " + output);
+            
+            // Look for "Execution Time: X.XXX ms" pattern in PostgreSQL output
+            Pattern pgPattern = Pattern.compile("Execution Time:\\s*([\\d.]+)\\s*ms");
+            Matcher pgMatcher = pgPattern.matcher(output);
+            
+            if (pgMatcher.find()) {
+                String timeValue = pgMatcher.group(1);
+                // System.out.println("Extracted PostgreSQL execution time: " + timeValue + " ms");
+                double timeMs = Double.parseDouble(timeValue);
+                latency_ns = (long) (timeMs * 1_000_000L); // Convert ms to ns
+                return latency_ns;
+            }
+            
+            // If no execution time found, try to find "actual time" pattern
+            Pattern actualTimePattern = Pattern.compile("actual time=([\\d.]+)\\.\\.[\\d.]+");
+            Matcher actualTimeMatcher = actualTimePattern.matcher(output);
+            
+            if (actualTimeMatcher.find()) {
+                String timeValue = actualTimeMatcher.group(1);
+                // System.out.println("Extracted PostgreSQL actual time: " + timeValue + " ms");
+                double timeMs = Double.parseDouble(timeValue);
+                latency_ns = (long) (timeMs * 1_000_000L); // Convert ms to ns
+                return latency_ns;
+            }
+        }
+        
         return latency_ns;
     }
 
