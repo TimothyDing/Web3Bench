@@ -12,12 +12,12 @@ from datetime import datetime
 
 # Database connection configuration
 db_config = {
-    "host": "127.0.0.1",    # Replace with your database host name
-    "port": 5432,           # Replace with your database port (4000 for TiDB, 3306 for MySQL, 5432 for PostgreSQL)
-    "user": "web3bench",     # Replace with your database username
-    "password": "web3bench",         # Replace with your database password
+    "host": "hgxxx-cn-xxxx-cn-hangzhou.hologres.aliyuncs.com",    # Replace with your database host name
+    "port": 80,           # Replace with your database port (4000 for TiDB, 3306 for MySQL, 5432 for PostgreSQL)
+    "user": "BASIC$web3bench",     # Replace with your database username
+    "password": "Web3bench",         # Replace with your database password
     "database": "web3bench", # Replace with your database name
-    "dbtype": "postgres"    # Database type: mysql, tidb, postgres
+    "dbtype": "hologres"    # Database type: mysql, tidb, postgres, hologres
 }
 
 # Import database connectors based on database type
@@ -57,7 +57,7 @@ def get_args():
     # --exportcsv: the name of the exported csv file, default is res
     parser.add_argument("--exportcsv", type=str, default="summary", help="The name of the exported csv file, default is summary. The name of the exported csv file is <exportcsv>.csv, and it will be exported to the current directory")
     # --dbtype: database type
-    parser.add_argument("--dbtype", type=str, default=db_config["dbtype"], choices=["mysql", "tidb", "postgres"], help="Database type: mysql, tidb, or postgres (default: from db_config)")
+    parser.add_argument("--dbtype", type=str, default=db_config["dbtype"], choices=["mysql", "tidb", "postgres", "hologres"], help="Database type: mysql, tidb, postgres, or hologres (default: from db_config)")
     # --exportdb: if it is empty, the script will not export the data to the database
     # If it is not empty, the script will export the data to the database.
     # The value of --exportdb can be sum or all
@@ -205,11 +205,23 @@ def create_db_connection():
             password=db_config["password"],
             database=db_config["database"]
         )
-    elif dbtype == "postgres":
+    elif dbtype == "postgres" or dbtype == "hologres":
         print("Debug: Using PostgreSQL connection")
         print(f"Debug: psycopg2 available: {psycopg2 is not None}")
         if psycopg2 is None:
             raise ImportError("psycopg2 is required for PostgreSQL connections")
+        return psycopg2.connect(
+            host=db_config["host"],
+            port=db_config["port"],
+            user=db_config["user"],
+            password=db_config["password"],
+            database=db_config["database"]
+        )
+    elif dbtype == "hologres":
+        print("Debug: Using Hologres connection")
+        print(f"Debug: psycopg2 available: {psycopg2 is not None}")
+        if psycopg2 is None:
+            raise ImportError("psycopg2 is required for Hologres connections")
         return psycopg2.connect(
             host=db_config["host"],
             port=db_config["port"],
@@ -272,7 +284,7 @@ VALUES
     (%s, %s, %s, %s, %s, %s, %s, %s);
 '''
         
-    elif dbtype == "postgres":
+    elif dbtype == "postgres" or dbtype == "hologres":
         create_sum_table_sql = '''
 CREATE TABLE IF NOT EXISTS sum_table (
     batch_id                    BIGINT,
@@ -286,8 +298,8 @@ CREATE TABLE IF NOT EXISTS sum_table (
     geometric_mean_latency_s    DECIMAL(20, 6),
     avg_latency_limit_s         VARCHAR(10),
     pass_fail                   VARCHAR(10),
-    start_time                  TIMESTAMP(6),
-    end_time                    TIMESTAMP(6),
+    start_time                  TIMESTAMP,
+    end_time                    TIMESTAMP,
     PRIMARY KEY (batch_id, txn_name)
 );
 '''
@@ -382,7 +394,7 @@ def export_original_to_db(cursor, conn, batch_id, data_directory):
                     ) for _, row in chunk.iterrows()]
                 # Execute batch insert
                 dbtype = db_config.get("dbtype", "mysql").lower()
-                if dbtype == "postgres":
+                if dbtype == "postgres" or dbtype == "hologres":
                     psycopg2.extras.execute_batch(cursor, res_table_insert_sql, values)
                 else:
                     cursor.executemany(res_table_insert_sql, values)

@@ -2,23 +2,23 @@
 
 # Values to modify
 ###########################################################
-# Database type: mysql, tidb, sdb (singlestoredb), or postgres
-dbtype=postgres
+# Database type: mysql, tidb, sdb (singlestoredb), postgres, or hologres
+dbtype=hologres
 ###########################################################
 # IP address of the database server
-new_ip='127.0.0.1'
-new_port=5432
+new_ip='hgxxx-cn-xxx-cn-hangzhou.hologres.aliyuncs.com'
+new_port=80
 new_dbname=web3bench
 # Notice: add \ before & in the jdbc url
-# For PostgreSQL, use: jdbc:postgresql://$new_ip:$new_port/$new_dbname
+# For PostgreSQL/Hologres, use: jdbc:postgresql://$new_ip:$new_port/$new_dbname
 # For MySQL/TiDB/SDB, use: jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8
-if [ $dbtype == "postgres" ] ; then
+if [ $dbtype == "postgres" ] || [ $dbtype == "hologres" ] ; then
     new_dburl="jdbc:postgresql://$new_ip:$new_port/$new_dbname"
 else
     new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
 fi
-new_username=web3bench
-new_password=web3bench
+new_username="BASIC\$web3bench"
+new_password=Web3bench
 new_nodeid="main"
 new_scalefactor=3
 # Test time in minutes
@@ -44,9 +44,13 @@ new_rate_R25=16
 set -e
 
 # Create database based on database type
-if [ $dbtype == "postgres" ] ; then
-    # PostgreSQL database creation
-    echo "Creating PostgreSQL database $new_dbname if not exists"
+if [ $dbtype == "postgres" ] || [ $dbtype == "hologres" ] ; then
+    # PostgreSQL/Hologres database creation
+    if [ $dbtype == "hologres" ] ; then
+        echo "Creating Hologres database $new_dbname if not exists"
+    else
+        echo "Creating PostgreSQL database $new_dbname if not exists"
+    fi
     export PGPASSWORD=$new_password
     psql -h $new_ip -p $new_port -U $new_username -d postgres -c "CREATE DATABASE $new_dbname;" 2>/dev/null || echo "Database $new_dbname may already exist"
     unset PGPASSWORD
@@ -122,7 +126,7 @@ echo "New rate for runR25 per minute: $new_rate_R25"
 echo "###########################################################"
 
 # Set driver based on database type
-if [ $dbtype == "postgres" ] ; then
+if [ $dbtype == "postgres" ] || [ $dbtype == "hologres" ] ; then
     new_driver="org.postgresql.Driver"
 else
     new_driver="com.mysql.cj.jdbc.Driver"
