@@ -13,7 +13,7 @@ new_dbname=web3bench
 # For PostgreSQL/Hologres, use: jdbc:postgresql://$new_ip:$new_port/$new_dbname
 # For MySQL/TiDB/SDB, use: jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8
 if [ $dbtype == "postgres" ] || [ $dbtype == "hologres" ] ; then
-    new_dburl="jdbc:postgresql://$new_ip:$new_port/$new_dbname"
+    new_dburl="jdbc:postgresql://$new_ip:$new_port/$new_dbname?ApplicationName=web3bench&reWriteBatchedInserts=true"
 else
     new_dburl="jdbc:mysql://$new_ip:$new_port/$new_dbname?useSSL=false\&amp;characterEncoding=utf-8"
 fi
